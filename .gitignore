@@ -1,0 +1,6 @@
+tadc
+*.[ao]
+*.so
+*.dll
+*.dylib
+*.exe
