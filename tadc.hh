@@ -4,7 +4,6 @@
 #ifndef TADC_HH_
 #define TADC_HH_
 
-#include <cassert>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
