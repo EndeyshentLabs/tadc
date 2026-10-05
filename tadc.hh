@@ -50,7 +50,7 @@ namespace binary {
 using binary::Version;
 
 struct Tad {
-    Tag tag;
+    std::string tag;
     std::string name;
     std::vector<uint8_t> data;
 };
@@ -143,7 +143,7 @@ public:
             ptr += tad_data->size;
 
             Tad tad { };
-            std::memcpy(tad.tag, tad_hdr->tag, sizeof(Tag));
+            tad.tag = { tad_hdr->tag, tad_hdr->tag + sizeof(Tag) };
             tad.name = { tad_hdr->name, tad_hdr->name + tad_hdr->name_len };
             tad.data = { tad_data->data, tad_data->data + tad_data->size };
 
@@ -161,11 +161,10 @@ public:
     {
         std::ifstream file { path, std::ios::ate | std::ios::binary };
 
-        if (!file.is_open()) {
+        if (!file.is_open())
             return std::unexpected(
                 Error { .kind = Error::Kind::File_Error,
                         .errc = std::make_error_code(std::errc { errno }) });
-        }
 
         size_t file_size = static_cast<size_t>(file.tellg());
 
@@ -194,7 +193,7 @@ public:
         for (const auto& [_, v] : data_map) {
             buf.append_range(v.tag);
             buf.push_back(v.name.size());
-            buf.append_range(v.name);
+            buf.append_range(v.name.substr(0, 255));
             size_t sz = v.data.size();
             buf.push_back((sz >> 0 * 8) & 0xFF);
             buf.push_back((sz >> 1 * 8) & 0xFF);

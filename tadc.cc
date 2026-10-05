@@ -1,7 +1,6 @@
 #include "tadc.hh"
 
 #include <print>
-#include <ranges>
 
 int main(int argc, char** argv)
 {
@@ -31,9 +30,22 @@ int main(int argc, char** argv)
                  path.string(),
                  tadc->version.major,
                  tadc->version.minor);
-    std::println("RT:\t{}", tadc->required_tags);
-    for (const auto& [name, v] : tadc->data_map) {
-        std::string tag { v.tag, v.tag + sizeof(Tag) };
-        std::println("DM:\t{:?} => <{:?}> {:?} {}", name, tag, v.name, v.data);
+    std::print("File requires support for this tag(s): {{");
+    for (const auto& t : tadc->required_tags) {
+        static bool first = true;
+        if (!first)
+            std::print(", ");
+        else
+            first = false;
+
+        std::print("{:?}", t);
     }
+    std::println("}}");
+
+    for (const auto& [name, v] : tadc->data_map)
+        std::println("Data:\t{:?} => <{:?}> {:?} {}",
+                     name,
+                     v.tag,
+                     v.name,
+                     v.data);
 }
