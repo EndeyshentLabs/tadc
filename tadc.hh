@@ -8,10 +8,12 @@
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <ranges>
 #include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 namespace tadc {
@@ -84,9 +86,9 @@ public:
         .minor = 0,
     };
 
-    Version version;
-    std::unordered_set<std::string> required_tags;
-    std::unordered_map<std::string, Tad> data_map;
+    Version version { PARSER_VERSION };
+    std::unordered_set<std::string> required_tags { };
+    std::unordered_map<std::string, Tad> data_map { };
 
     static std::expected<Tadc, Error> create(std::span<const uint8_t> mem)
     {
@@ -178,6 +180,39 @@ public:
         return create(buffer);
     }
 
+    static inline Tadc create() { return Tadc { }; }
+
+    inline void insert(const Tad& tad)
+    {
+        require_tag(tad.tag);
+        data_map.insert({ tad.name, tad });
+    }
+
+    template <typename... Args>
+    inline void emplace(Args&&... args)
+    {
+        insert(Tad { std::forward<Args>(args)... });
+    }
+
+    inline void require_tag(const std::string_view tag)
+    {
+        required_tags.insert(std::string { tag });
+    }
+
+    inline void require_tag(const std::span<const std::string_view> tags)
+    {
+        for (const auto t : tags)
+            require_tag(t);
+    }
+
+    inline std::unordered_set<std::string> tags_in_use() const
+    {
+        std::unordered_set<std::string> result;
+        for (const auto& [_, v] : data_map)
+            result.insert(v.tag);
+        return result;
+    }
+
     inline std::vector<uint8_t> emit_binary() const
     {
         std::vector<uint8_t> buf;
@@ -209,6 +244,84 @@ public:
         return buf;
     }
 };
+
+namespace parsers {
+
+    struct Utf8 {
+        static constexpr std::string_view TAG = "UTF8";
+
+        inline constexpr std::string parse(const Tad& tad) const
+        {
+            return tad.data | std::ranges::to<std::string>();
+        }
+
+        inline constexpr Tad emit(const std::string_view name,
+                                  const std::string_view data) const
+        {
+            return Tad {
+                .tag = std::string { TAG },
+                .name = std::string { name },
+                .data = data | std::ranges::to<std::vector<uint8_t>>(),
+            };
+        }
+    };
+
+}
+
+template <typename... Parsers>
+struct Parser_Registry {
+    using Parsed_Variant = std::variant<std::monostate,
+                                        decltype(std::declval<Parsers>().parse(
+                                            std::declval<const Tad&>()))...>;
+
+    static std::optional<Parsed_Variant> parse(const Tad& tad)
+    {
+        std::optional<Parsed_Variant> result = std::nullopt;
+
+        const auto try_parse = [&]<typename P>() {
+            if (!result && tad.tag == P::TAG)
+                result = std::move(P { }.parse(tad));
+        };
+
+        (try_parse.template operator()<Parsers>(), ...);
+        return result;
+    }
+
+    template <typename T>
+    static std::optional<Tad>
+    emit(const std::string& tag, const std::string& name, const T& data)
+    {
+        std::optional<Tad> result;
+
+        const auto try_emit = [&]<typename P>() {
+            if (!result && tag == P::TAG)
+                result = std::move(P { }.emit(tag, name, data));
+        };
+
+        (try_emit.template operator()<Parsers>(), ...);
+        return result;
+    }
+
+    static std::optional<Tad> emit(const std::string& tag,
+                                   const std::string& name,
+                                   const Parsed_Variant& var)
+    {
+        return std::visit(
+            [&](const auto& data) -> std::optional<Tad> {
+                using T = std::decay_t<decltype(data)>;
+                if constexpr (!std::is_same_v<T, std::monostate>)
+                    return emit<T>(tag, name, data);
+            },
+            var);
+    }
+};
+
+template <typename... Ts>
+struct Extendable_Parser_Registry : public Parser_Registry<Ts...> { };
+
+template <typename... Ts>
+struct Default_Parser_Registry
+    : public Extendable_Parser_Registry<parsers::Utf8, Ts...> { };
 
 } // namespace tadc
 

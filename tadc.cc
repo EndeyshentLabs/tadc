@@ -4,7 +4,7 @@
 
 int main(int argc, char** argv)
 {
-    using tadc::Tadc, tadc::Tag;
+    using tadc::Tadc, tadc::Tag, tadc::Default_Parser_Registry;
 
     if (argc != 2) {
         std::println(stderr, "Usage: {} <file.tadc>", argv[0]);
@@ -42,10 +42,17 @@ int main(int argc, char** argv)
     }
     std::println("}}");
 
-    for (const auto& [name, v] : tadc->data_map)
-        std::println("Data:\t{:?} => <{:?}> {:?} {}",
-                     name,
-                     v.tag,
-                     v.name,
-                     v.data);
+    for (const auto& [name, v] : tadc->data_map) {
+        std::print("Data:\t{:?} => <{:?}> {:?} ", name, v.tag, v.name);
+        if (auto parsed = Default_Parser_Registry<>::parse(v))
+            std::visit(
+                [&](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<T, std::monostate>)
+                        std::println("{}", arg);
+                },
+                *parsed);
+        else
+            std::println("{}", v.data);
+    }
 }
