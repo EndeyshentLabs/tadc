@@ -22,6 +22,34 @@ using Tag = uint8_t[4];
 
 namespace binary {
 
+    // Binary format spec:
+    //
+    // Tag: 4 bytes
+    //
+    // Header:
+    // | Byte Offset |       Byte Size       |       Description       |
+    // | ----------- | --------------------- | ----------------------- |
+    // |      0      |           4           |       "TADC" Magic      |
+    // |      4      |           1           |      major version      |
+    // |      5      |           1           |      minor version      |
+    // |      6      |           1           | amount of required tags |
+    // |      7      | 4*required_tags_count |  required tags (if any) |
+    //
+    // Tagged Data section begins right after last required tag in the header.
+    // Tagged Data Header:
+    // | Byte Offset | Byte Size |     Description    |
+    // | ----------- | --------- | ------------------ |
+    // |      0      |     4     |         tag        |
+    // |      1      |     1     | length of the name |
+    // |      2      |  name_len |        name        |
+    //
+    // Tagged Data follows it's header.
+    // Tagged Data:
+    // | Byte Offset | Byte Size | Description |
+    // | ----------- | --------- | ----------- |
+    // |      0      |     8     |  data size  |
+    // |      8      |    size   |     data    |
+
 #pragma pack(push)
     struct Version {
         uint8_t major;
@@ -216,18 +244,36 @@ public:
     inline std::vector<uint8_t> emit_binary() const
     {
         std::vector<uint8_t> buf;
+
+        const auto push_tag = [&buf](const std::string_view tag) -> bool {
+            if (tag.size() > sizeof(Tag))
+                return false;
+
+            buf.append_range(tag);
+            for (size_t i = 0; i < (sizeof(Tag) - tag.size()); ++i)
+                buf.push_back(0);
+
+            return true;
+        };
+
         buf.push_back('T');
         buf.push_back('A');
         buf.push_back('D');
         buf.push_back('C');
         buf.push_back(version.major);
         buf.push_back(version.minor);
+        if (required_tags.size() > 255)
+            return { };
         buf.push_back(required_tags.size());
         for (const auto& t : required_tags)
-            buf.append_range(t);
+            if (!push_tag(t))
+                return { };
+
         for (const auto& [_, v] : data_map) {
-            buf.append_range(v.tag);
-            buf.push_back(v.name.size());
+            if (!push_tag(v.tag))
+                return { };
+
+            buf.push_back(std::min(v.name.size(), 255uz));
             buf.append_range(v.name.substr(0, 255));
             size_t sz = v.data.size();
             buf.push_back((sz >> 0 * 8) & 0xFF);
@@ -247,16 +293,29 @@ public:
 
 namespace parsers {
 
+    // Custom parsers should:
+    // 1. Have static `TAG`, that can be `operator==` with `std::string`
+    // 2. Implement `parse`
+    // 3. Implement `emit`
+    //
+    // `Parser`'s lifetime in a Parser_Registry is equal to single expression
+    // per `parse`/`emit`, so they can be static.
+    //
+    // Non-static implementations can be useful for manual calls for parsers
+    // with per-instance configuration.
+
+    //
+
     struct Utf8 {
         static constexpr std::string_view TAG = "UTF8";
 
-        inline constexpr std::string parse(const Tad& tad) const
+        static inline constexpr std::string parse(const Tad& tad)
         {
             return tad.data | std::ranges::to<std::string>();
         }
 
-        inline constexpr Tad emit(const std::string_view name,
-                                  const std::string_view data) const
+        static inline constexpr Tad emit(const std::string_view name,
+                                         const std::string_view data)
         {
             return Tad {
                 .tag = std::string { TAG },
@@ -295,7 +354,7 @@ struct Parser_Registry {
 
         const auto try_emit = [&]<typename P>() {
             if (!result && tag == P::TAG)
-                result = std::move(P { }.emit(tag, name, data));
+                result = std::move(P { }.emit(name, data));
         };
 
         (try_emit.template operator()<Parsers>(), ...);
@@ -318,14 +377,38 @@ struct Parser_Registry {
 
 using Default_Parser_Registry = Parser_Registry<parsers::Utf8>;
 
-template<typename...>
+template <typename...>
 struct Extend_Parser_Registry_impl;
 
 template <typename... Head, typename... Rest>
 struct Extend_Parser_Registry_impl<Parser_Registry<Head...>, Rest...> {
     using type = Parser_Registry<Head..., Rest...>;
 };
+template <typename... Head, typename... Rest>
+struct Extend_Parser_Registry_impl<Parser_Registry<Head...>,
+                                   Parser_Registry<Rest>...> {
+    using type = Parser_Registry<Head..., Rest...>;
+};
 
+// Can be used to create parser bundles:
+// ```cpp
+// using My_3D_Model_Parser_Registry = Parser_Registry<
+//     My_Obj_Parser,
+//     My_Fbx_Parser,
+//     My_Gltf_Parser
+// >;
+// using My_Music_Parser_Registry = Parser_Registry<
+//     My_Wav_Parser,
+//     My_Ogg_Parser,
+//     My_Flac_Parser,
+//     My_Mp3_Parser
+// >;
+// using Global_Parser_Registry = Extend_Parser_Registry<
+//     Default_Parser_Registry,
+//     My_3D_Model_Parser_Registry,
+//     My_Music_Parser_Registry
+// >;
+// ```
 template <typename E, typename... Rest>
 using Extend_Parser_Registry = Extend_Parser_Registry_impl<E, Rest...>::type;
 
