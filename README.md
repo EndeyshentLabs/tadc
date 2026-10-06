@@ -18,15 +18,14 @@ $ ./tadc ./tests/new.tadc
 
 ## Specs
 
-View source code of [`tadc.hh`](code) for binary specification.
+View source code of [`tadc.hh`](tadc.hh) for binary specification.
 
 ## The C++ library
 
-Header only with static (or sometimes inline) implementations [`tadc.hh`](code).
-**NOT** a STB style single-header library, but single-header non the less.
+Header only with static (or sometimes inline) implementations
+[`tadc.hh`](tadc.hh). **NOT** a STB style single-header library, but
+single-header non the less.
 
 ### Implementing custom parsers
 
-Info available in the source code [`tadc.hh`](code).
-
-[code]: tadc.hh
+Info available in the source code [`tadc.hh`](tadc.hh).
