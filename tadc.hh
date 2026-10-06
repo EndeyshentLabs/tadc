@@ -119,7 +119,8 @@ struct Tadc {
     std::unordered_set<std::string> required_tags { };
     std::unordered_map<std::string, Tad> data_map { };
 
-    static std::expected<Tadc, Parse_Error> create(std::span<const uint8_t> mem)
+    static std::expected<Tadc, Parse_Error>
+    create(const std::span<const uint8_t> mem)
     {
         if (mem.size() < sizeof(binary::Tadc_Header))
             return std::unexpected(
@@ -199,7 +200,7 @@ struct Tadc {
                 .kind = Parse_Error::Kind::File_Error,
                 .errc = std::make_error_code(std::errc { errno }) });
 
-        size_t file_size = static_cast<size_t>(file.tellg());
+        const size_t file_size = static_cast<size_t>(file.tellg());
 
         std::vector<uint8_t> buffer(file_size);
 
@@ -281,7 +282,7 @@ struct Tadc {
 
             buf.push_back(std::min(v.name.size(), 255uz));
             buf.append_range(v.name.substr(0, 255));
-            size_t sz = v.data.size();
+            const size_t sz = v.data.size();
             buf.push_back((sz >> 0 * 8) & 0xFF);
             buf.push_back((sz >> 1 * 8) & 0xFF);
             buf.push_back((sz >> 2 * 8) & 0xFF);

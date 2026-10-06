@@ -11,9 +11,9 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    std::filesystem::path path { argv[1] };
+    const std::filesystem::path path { argv[1] };
 
-    auto tadc = Tadc::create(path);
+    const auto tadc = Tadc::create(path);
     if (!tadc.has_value()) {
         const auto err = tadc.error();
         if (err.kind == Tadc::Parse_Error::Kind::File_Error)
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 
     for (const auto& [name, v] : tadc->data_map) {
         std::print("Data:\t{:?} => <{:?}> {:?} ", name, v.tag, v.name);
-        if (auto parsed = Default_Parser_Registry::parse(v))
+        if (const auto parsed = Default_Parser_Registry::parse(v))
             std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
