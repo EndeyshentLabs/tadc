@@ -5,6 +5,7 @@
 #define TADC_HH_
 
 #include <cstdint>
+#include <cstring>
 #include <expected>
 #include <filesystem>
 #include <fstream>
