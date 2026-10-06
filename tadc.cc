@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 
     for (const auto& [name, v] : tadc->data_map) {
         std::print("Data:\t{:?} => <{:?}> {:?} ", name, v.tag, v.name);
-        if (auto parsed = Default_Parser_Registry<>::parse(v))
+        if (auto parsed = Default_Parser_Registry::parse(v))
             std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;

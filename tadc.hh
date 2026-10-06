@@ -316,12 +316,18 @@ struct Parser_Registry {
     }
 };
 
-template <typename... Ts>
-struct Extendable_Parser_Registry : public Parser_Registry<Ts...> { };
+using Default_Parser_Registry = Parser_Registry<parsers::Utf8>;
 
-template <typename... Ts>
-struct Default_Parser_Registry
-    : public Extendable_Parser_Registry<parsers::Utf8, Ts...> { };
+template<typename...>
+struct Extend_Parser_Registry_impl;
+
+template <typename... Head, typename... Rest>
+struct Extend_Parser_Registry_impl<Parser_Registry<Head...>, Rest...> {
+    using type = Parser_Registry<Head..., Rest...>;
+};
+
+template <typename E, typename... Rest>
+using Extend_Parser_Registry = Extend_Parser_Registry_impl<E, Rest...>::type;
 
 } // namespace tadc
 
