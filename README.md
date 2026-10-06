@@ -29,4 +29,4 @@ Header only with static (or sometimes inline) implementations [`tadc.hh`](code).
 
 Info available in the source code [`tadc.hh`](code).
 
-[code]: ./tadc.hh
+[code]: tadc.hh
