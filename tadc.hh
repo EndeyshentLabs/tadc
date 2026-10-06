@@ -51,6 +51,10 @@ namespace binary {
     // |      0      |     8     |  data size  |
     // |      8      |    size   |     data    |
 
+    //
+
+    static constexpr uint8_t MAGIC[4] = { 'T', 'A', 'D', 'C' };
+
 #pragma pack(push)
     struct Version {
         uint8_t major;
@@ -58,7 +62,7 @@ namespace binary {
     };
 
     struct Tadc_Header {
-        uint8_t magic[4];
+        uint8_t magic[sizeof(MAGIC)];
         Version version;
         uint8_t required_tags_count;
         Tag tags[];
@@ -86,12 +90,8 @@ struct Tad {
     std::vector<uint8_t> data;
 };
 
-class Tadc {
-private:
-    Tadc() = default;
-
-public:
-    struct Error {
+struct Tadc {
+    struct Parse_Error {
         enum class Kind {
             File_Error,
             No_Header,
@@ -119,27 +119,28 @@ public:
     std::unordered_set<std::string> required_tags { };
     std::unordered_map<std::string, Tad> data_map { };
 
-    static std::expected<Tadc, Error> create(std::span<const uint8_t> mem)
+    static std::expected<Tadc, Parse_Error> create(std::span<const uint8_t> mem)
     {
         if (mem.size() < sizeof(binary::Tadc_Header))
             return std::unexpected(
-                Error { .kind = Error::Kind::No_Header, .offset = 0 });
+                Parse_Error { .kind = Parse_Error::Kind::No_Header,
+                              .offset = 0 });
 
         const uint8_t* ptr = mem.data();
         const auto rem
             = [mem, &ptr]() { return (mem.data() + mem.size()) - ptr; };
-        const auto error = [mem, &ptr](Error::Kind k) {
+        const auto error = [mem, &ptr](Parse_Error::Kind k) {
             return std::unexpected(
-                Error { .kind = k, .offset = ptr - mem.data() });
+                Parse_Error { .kind = k, .offset = ptr - mem.data() });
         };
 
         const auto* hdr = reinterpret_cast<const binary::Tadc_Header*>(ptr);
-        if (std::memcmp(hdr, "TADC", sizeof(binary::Tadc_Header::magic)) != 0)
-            return error(Error::Kind::Bad_Header_Magic);
+        if (std::memcmp(hdr, binary::MAGIC, sizeof(binary::MAGIC)) != 0)
+            return error(Parse_Error::Kind::Bad_Header_Magic);
         ptr += sizeof(binary::Tadc_Header);
         if (hdr->version.major > PARSER_VERSION.major)
-            return std::unexpected(Error {
-                .kind = Error::Kind::Unsupported_Version,
+            return std::unexpected(Parse_Error {
+                .kind = Parse_Error::Kind::Unsupported_Version,
                 .offset
                 = reinterpret_cast<const uint8_t*>(&hdr->version) - mem.data(),
             });
@@ -147,7 +148,7 @@ public:
         decltype(required_tags) required_tags;
         for (size_t i = 0; i < hdr->required_tags_count; ++i) {
             if (rem() <= 0)
-                return error(Error::Kind::Bad_Required_Tag_Memory);
+                return error(Parse_Error::Kind::Bad_Required_Tag_Memory);
 
             required_tags.emplace(ptr, ptr + sizeof(Tag));
             ptr += sizeof(Tag);
@@ -156,21 +157,21 @@ public:
         decltype(data_map) data_map;
         while (rem() > 0) {
             if (rem() < sizeof(binary::Tad_Header))
-                return error(Error::Kind::No_Data_Header);
+                return error(Parse_Error::Kind::No_Data_Header);
             const auto* tad_hdr
                 = reinterpret_cast<const binary::Tad_Header*>(ptr);
             ptr += sizeof(binary::Tad_Header);
             if (rem() < tad_hdr->name_len)
-                return error(Error::Kind::Bad_Data_Header_Name_Memory);
+                return error(Parse_Error::Kind::Bad_Data_Header_Name_Memory);
             ptr += tad_hdr->name_len;
 
             if (rem() < sizeof(binary::Tad_Data))
-                return error(Error::Kind::No_Data_Data);
+                return error(Parse_Error::Kind::No_Data_Data);
             const auto* tad_data
                 = reinterpret_cast<const binary::Tad_Data*>(ptr);
             ptr += sizeof(binary::Tad_Data);
             if (rem() < tad_data->size)
-                return error(Error::Kind::Bad_Data_Data_Memory);
+                return error(Parse_Error::Kind::Bad_Data_Data_Memory);
             ptr += tad_data->size;
 
             Tad tad { };
@@ -181,21 +182,22 @@ public:
             data_map.insert({ tad.name, tad });
         }
 
-        Tadc tadc { };
-        tadc.version = hdr->version;
-        tadc.required_tags = required_tags;
-        tadc.data_map = data_map;
-        return tadc;
+        return Tadc {
+            .version = hdr->version,
+            .required_tags = required_tags,
+            .data_map = data_map,
+        };
     }
 
-    static std::expected<Tadc, Error> create(const std::filesystem::path& path)
+    static std::expected<Tadc, Parse_Error>
+    create(const std::filesystem::path& path)
     {
         std::ifstream file { path, std::ios::ate | std::ios::binary };
 
         if (!file.is_open())
-            return std::unexpected(
-                Error { .kind = Error::Kind::File_Error,
-                        .errc = std::make_error_code(std::errc { errno }) });
+            return std::unexpected(Parse_Error {
+                .kind = Parse_Error::Kind::File_Error,
+                .errc = std::make_error_code(std::errc { errno }) });
 
         size_t file_size = static_cast<size_t>(file.tellg());
 
@@ -208,8 +210,6 @@ public:
 
         return create(buffer);
     }
-
-    static inline Tadc create() { return Tadc { }; }
 
     inline void insert(const Tad& tad)
     {
@@ -242,7 +242,12 @@ public:
         return result;
     }
 
-    inline std::vector<uint8_t> emit_binary() const
+    enum class Emit_Error {
+        Too_Many_Required_Tags,
+        Invalid_Tag,
+    };
+
+    inline std::expected<std::vector<uint8_t>, Emit_Error> emit_binary() const
     {
         std::vector<uint8_t> buf;
 
@@ -264,15 +269,15 @@ public:
         buf.push_back(version.major);
         buf.push_back(version.minor);
         if (required_tags.size() > 255)
-            return { };
+            return std::unexpected(Emit_Error::Too_Many_Required_Tags);
         buf.push_back(required_tags.size());
         for (const auto& t : required_tags)
             if (!push_tag(t))
-                return { };
+                return std::unexpected(Emit_Error::Invalid_Tag);
 
         for (const auto& [_, v] : data_map) {
             if (!push_tag(v.tag))
-                return { };
+                return std::unexpected(Emit_Error::Invalid_Tag);
 
             buf.push_back(std::min(v.name.size(), 255uz));
             buf.append_range(v.name.substr(0, 255));

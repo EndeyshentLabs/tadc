@@ -16,7 +16,7 @@ int main(int argc, char** argv)
     auto tadc = Tadc::create(path);
     if (!tadc.has_value()) {
         const auto err = tadc.error();
-        if (err.kind == Tadc::Error::Kind::File_Error)
+        if (err.kind == Tadc::Parse_Error::Kind::File_Error)
             std::println("File_Error: {}", err.errc.message());
         else
             std::println("Error: 0x{:x} at offset 0x{:x}",
